@@ -21,6 +21,9 @@ export NODE_BINARY=${NODE_BINARY:-$(command -v node)}
 # Source map upload needs upstream's Sentry account.
 export SENTRY_DISABLE_AUTO_UPLOAD=true
 
+# src/env.ts is gitignored upstream (it holds their Sentry DSN). Empty = no crash reporting.
+[ -f src/env.ts ] || echo 'export const SentryDSN = "";' > src/env.ts
+
 bun install
 (cd macos && pod install)
 
@@ -33,7 +36,7 @@ xcodebuild \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
   PROVISIONING_PROFILE_SPECIFIER="" \
-  build | tail -n 20
+  build > "$DERIVED_DATA/build.log" 2>&1 || { tail -n 40 "$DERIVED_DATA/build.log"; exit 1; }
 
 app="$DERIVED_DATA/Build/Products/Release/Sol.app"
 echo "Built: $app"
