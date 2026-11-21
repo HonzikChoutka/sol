@@ -87,6 +87,11 @@ final class HotKeyManager {
         return nil
       }
 
+      // cmd+p pins/unpins clipboard items (handled in JS); don't pass it to the text field.
+      if metaPressed && !controlPressed && $0.keyCode == 35 {
+        return nil
+      }
+
       if metaPressed && $0.characters != nil
         && self.numberchars
           .contains($0.characters!)

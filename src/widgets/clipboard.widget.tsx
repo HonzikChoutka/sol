@@ -90,6 +90,7 @@ const RenderItem = observer(
 				>
 					{item.text.trim()}
 				</Text>
+				{!!item.pinned && <Text className="text-xxs">📌</Text>}
 			</TouchableOpacity>
 		);
 	},
@@ -99,6 +100,7 @@ export const ClipboardWidget: FC<Props> = observer(() => {
 	const store = useStore();
 	const data = store.clipboard.clipboardItems;
 	const selectedIndex = store.ui.selectedIndex;
+	const selectedPinned = !!data[selectedIndex]?.pinned;
 	const listRef = useRef<LegendListRef | null>(null);
 
 	useEffect(() => {
@@ -176,6 +178,12 @@ export const ClipboardWidget: FC<Props> = observer(() => {
 			</View>
 			{/* Shortcut bar at the bottom */}
 			<View className="py-2 px-4 flex-row items-center justify-end gap-1 subBg border-t border-color">
+				<Text className="text-xs darker-text mr-1">
+					{selectedPinned ? "Unpin" : "Pin"}
+				</Text>
+				<Key symbol={"⌘"} />
+				<Key symbol={"P"} />
+				<View className="mx-2" />
 				<Text className="text-xs darker-text mr-1">Delete Item</Text>
 				<Key symbol={"⇧"} />
 				<Key symbol={"⌫"} />

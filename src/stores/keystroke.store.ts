@@ -57,6 +57,21 @@ export const createKeystrokeStore = (root: IRootStore) => {
 				// "k" / "p" keys - simulate an up key press
 				case 40:
 				case 35: {
+					// cmd+p in the clipboard: pin/unpin the selected item and keep it selected
+					if (
+						keyCode === 35 &&
+						meta &&
+						!store.controlPressed &&
+						root.ui.focusedWidget === Widget.CLIPBOARD
+					) {
+						const item = root.clipboard.clipboardItems[root.ui.selectedIndex];
+						root.clipboard.togglePin(item);
+						const newIndex = root.clipboard.clipboardItems.indexOf(item);
+						if (newIndex !== -1) {
+							root.ui.setSelectedIndex(newIndex);
+						}
+						return;
+					}
 					if (store.controlPressed) {
 						store.keyDown({ keyCode: 126, meta: false, shift: false });
 					}
@@ -76,7 +91,9 @@ export const createKeystrokeStore = (root: IRootStore) => {
 
 					if (root.ui.focusedWidget === Widget.CLIPBOARD) {
 						if (shift) {
-							root.clipboard.deleteItem(root.ui.selectedIndex);
+							root.clipboard.deleteItem(
+								root.clipboard.clipboardItems[root.ui.selectedIndex],
+							);
 						}
 						return;
 					}
@@ -164,11 +181,7 @@ export const createKeystrokeStore = (root: IRootStore) => {
 							const entry =
 								root.clipboard.clipboardItems[root.ui.selectedIndex];
 
-							const originalIndex = root.clipboard.clipboardItems.findIndex(
-								(e) => entry === e,
-							);
-
-							root.clipboard.popToTop(originalIndex);
+							root.clipboard.popToTop(entry);
 
 							if (entry) {
 								if (meta) {
@@ -718,7 +731,7 @@ export const createKeystrokeStore = (root: IRootStore) => {
 						case Widget.CLIPBOARD: {
 							root.ui.selectedIndex = Math.min(
 								root.ui.selectedIndex + 1,
-								root.clipboard.items.length - 1,
+								root.clipboard.clipboardItems.length - 1,
 							);
 							break;
 						}

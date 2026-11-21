@@ -8,6 +8,7 @@ import { solNative } from "lib/SolNative";
 import { observer } from "mobx-react-lite";
 import { Image, ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { useStore } from "store";
+import { RETENTION_OPTIONS } from "stores/clipboard.retention";
 
 const emojiSkinToneDropdownOptions = emojiSkinToneOptions.map(
 	({ value, label, emoji }) => ({
@@ -230,6 +231,25 @@ export const General = observer(() => {
 					<MySwitch
 						value={store.clipboard.saveHistory}
 						onValueChange={store.clipboard.setSaveHistory}
+					/>
+				</View>
+				<View className="border-t border-lightBorder dark:border-darkBorder" />
+				<View className="flex-row items-center z-10">
+					<View className="flex-1">
+						<Text>Delete unpinned clipboard items</Text>
+						<Text className="text-xxs text-neutral-500 dark:text-neutral-400">
+							Counted from when an item was last copied or pasted. Pin items
+							with ⌘P to keep them.
+						</Text>
+					</View>
+					<Dropdown
+						className="w-64"
+						value={store.clipboard.retentionDays}
+						onValueChange={(value) => {
+							store.clipboard.setRetentionDays(Number(value));
+						}}
+						options={RETENTION_OPTIONS}
+						upward
 					/>
 				</View>
 				<View className="border-t border-lightBorder dark:border-darkBorder" />

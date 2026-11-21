@@ -4,14 +4,21 @@ import MiniSearch from "minisearch";
 import { autorun, makeAutoObservable, runInAction } from "mobx";
 import type { EmitterSubscription } from "react-native";
 import type { IRootStore } from "store";
+import {
+	itemsToPrune,
+	normalizeRetentionDays,
+	pinnedFirst,
+} from "./clipboard.retention";
 import { readPersistedStore, writePersistedStore } from "./persisted-config";
 import { Widget } from "./ui.store";
 
 const MAX_ITEMS = 1000;
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const MANAGED_PASTEBOARD_IMAGES_PATH = `/Users/${solNative.userName()}/.config/sol/images_pasteboard`;
 
 let onTextCopiedListener: EmitterSubscription | undefined;
 let onFileCopiedListener: EmitterSubscription | undefined;
+let pruneInterval: ReturnType<typeof setInterval> | undefined;
 
 export type ClipboardStore = ReturnType<typeof createClipboardStore>;
 
@@ -20,7 +27,8 @@ export type PasteItem = {
 	text: string;
 	url?: string | null;
 	bundle?: string | null;
-	datetime: number; // Unix timestamp when copied
+	datetime: number; // Unix timestamp when last copied or pasted
+	pinned?: boolean; // pinned items are never deleted automatically
 };
 
 type RankedPasteItem = PasteItem & {
@@ -98,11 +106,18 @@ function cleanupOrphanedManagedImageFiles(items: PasteItem[]) {
 
 export const createClipboardStore = (root: IRootStore) => {
 	const store = makeAutoObservable({
-		deleteItem: (index: number) => {
-			if (index >= 0 && index < store.items.length) {
+		deleteItem: (item: PasteItem | undefined) => {
+			const index = item ? store.items.findIndex((i) => i.id === item.id) : -1;
+			if (index !== -1) {
 				removeManagedImageFile(store.items[index]);
 				minisearch.remove(store.items[index]);
 				store.items.splice(index, 1);
+			}
+		},
+		togglePin: (item: PasteItem | undefined) => {
+			const target = item && store.items.find((i) => i.id === item.id);
+			if (target) {
+				target.pinned = !target.pinned;
 			}
 		},
 		deleteAllItems: () => {
@@ -112,6 +127,8 @@ export const createClipboardStore = (root: IRootStore) => {
 		},
 		items: [] as PasteItem[],
 		saveHistory: false,
+		// Unpinned items older than this many days are deleted; 0 keeps them until MAX_ITEMS.
+		retentionDays: 0,
 		onFileCopied: (obj: {
 			text: string;
 			url: string;
@@ -143,8 +160,7 @@ export const createClipboardStore = (root: IRootStore) => {
 			store.items.unshift(newItem);
 			minisearch.add(newItem);
 
-			// Remove last item from minisearch
-			store.removeLastItemIfNeeded();
+			store.prune();
 		},
 		onTextCopied: (obj: { text: string; bundle: string | null }) => {
 			if (!obj.text) {
@@ -164,7 +180,7 @@ export const createClipboardStore = (root: IRootStore) => {
 				minisearch.remove(store.items[index]);
 				minisearch.add(store.items[index]);
 
-				store.popToTop(index);
+				store.popToTop(store.items[index]);
 				return;
 			}
 
@@ -172,14 +188,13 @@ export const createClipboardStore = (root: IRootStore) => {
 			store.items.unshift(newItem);
 			minisearch.add(newItem);
 
-			// Remove last item from minisearch
-			store.removeLastItemIfNeeded();
+			store.prune();
 		},
 		get clipboardItems(): PasteItem[] {
 			const items = store.items;
 
 			if (!root.ui.query || root.ui.focusedWidget !== Widget.CLIPBOARD) {
-				return items;
+				return pinnedFirst(items);
 			}
 
 			// Boost recent items in search results
@@ -211,26 +226,48 @@ export const createClipboardStore = (root: IRootStore) => {
 				return (right.score ?? 0) - (left.score ?? 0);
 			});
 
-			return results;
+			// Return the live items (search results are copies of the indexed fields), so
+			// pins show and actions on a result find the item it came from.
+			const byId = new Map(items.map((item) => [item.id, item]));
+			return results
+				.map((result) => byId.get(result.id))
+				.filter((item): item is PasteItem => item != null);
 		},
-		removeLastItemIfNeeded: () => {
-			if (store.items.length > MAX_ITEMS) {
-				const removedItem = store.items[store.items.length - 1];
-				removeManagedImageFile(removedItem);
+		prune: () => {
+			const drop = itemsToPrune(store.items, {
+				retentionDays: store.retentionDays,
+				maxItems: MAX_ITEMS,
+				now: Date.now(),
+			});
+			if (drop.length === 0) {
+				return;
+			}
 
+			for (const item of drop) {
+				removeManagedImageFile(item);
 				try {
-					minisearch.remove(store.items[store.items.length - 1]);
+					minisearch.remove(item);
 				} catch (e) {
 					captureException(e);
 				}
-
-				store.items = store.items.slice(0, MAX_ITEMS);
 			}
+			const dropped = new Set(drop);
+			store.items = store.items.filter((item) => !dropped.has(item));
 		},
-		popToTop: (index: number) => {
+		setRetentionDays: (days: number) => {
+			store.retentionDays = normalizeRetentionDays(days);
+			store.prune();
+		},
+		// Moves an item to the top and counts it as used now, so retention keeps it.
+		popToTop: (item: PasteItem | undefined) => {
+			const index = item ? store.items.findIndex((i) => i.id === item.id) : -1;
+			if (index === -1) {
+				return;
+			}
 			const newItems = [...store.items];
-			const item = newItems.splice(index, 1);
-			newItems.unshift(item[0]);
+			const [moved] = newItems.splice(index, 1);
+			moved.datetime = Date.now();
+			newItems.unshift(moved);
 			store.items = newItems;
 		},
 		setSaveHistory: (v: boolean) => {
@@ -244,6 +281,10 @@ export const createClipboardStore = (root: IRootStore) => {
 			onTextCopiedListener = undefined;
 			onFileCopiedListener?.remove();
 			onFileCopiedListener = undefined;
+			if (pruneInterval) {
+				clearInterval(pruneInterval);
+				pruneInterval = undefined;
+			}
 		},
 	});
 
@@ -259,10 +300,14 @@ export const createClipboardStore = (root: IRootStore) => {
 	const hydrate = async () => {
 		const persistedState = await readPersistedStore<{
 			saveHistory?: boolean;
+			retentionDays?: number;
 		}>("clipboard");
 
 		if (persistedState) {
 			store.saveHistory = persistedState.saveHistory ?? false;
+			store.retentionDays = normalizeRetentionDays(
+				persistedState.retentionDays,
+			);
 		}
 
 		if (store.saveHistory) {
@@ -283,6 +328,7 @@ export const createClipboardStore = (root: IRootStore) => {
 				runInAction(() => {
 					store.items = items;
 					minisearch.addAll(store.items);
+					store.prune();
 				});
 
 				cleanupOrphanedManagedImageFiles(items);
@@ -320,6 +366,7 @@ export const createClipboardStore = (root: IRootStore) => {
 		try {
 			writePersistedStore("clipboard", {
 				saveHistory: storeWithoutItems.saveHistory,
+				retentionDays: storeWithoutItems.retentionDays,
 			});
 		} catch {
 			console.warn("Could not persist clipboard store config");
@@ -327,7 +374,10 @@ export const createClipboardStore = (root: IRootStore) => {
 	};
 
 	hydrate().then(() => {
-		autorun(persist);
+		// The whole history is written to the Keychain on every change; batch bursts of
+		// changes (copies, pastes, pins) into one write.
+		autorun(persist, { delay: 1000 });
+		pruneInterval = setInterval(store.prune, PRUNE_INTERVAL_MS);
 	});
 
 	return store;
