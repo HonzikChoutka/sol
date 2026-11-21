@@ -18,6 +18,8 @@ export GEM_HOME="$HOME/.local/share/cocoapods-gems"
 export PATH="/opt/homebrew/Library/Homebrew/vendor/portable-ruby/current/bin:$GEM_HOME/bin:$PATH"
 export LANG=en_US.UTF-8
 export NODE_BINARY=${NODE_BINARY:-$(command -v node)}
+# Source map upload needs upstream's Sentry account.
+export SENTRY_DISABLE_AUTO_UPLOAD=true
 
 bun install
 (cd macos && pod install)
