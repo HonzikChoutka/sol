@@ -362,10 +362,15 @@ class SolNative: RCTEventEmitter {
   @objc func securelyRetrieve(
     _ key: NSString,
     resolver resolve: RCTPromiseResolveBlock,
-    rejecter _: RCTPromiseRejectBlock
+    rejecter reject: RCTPromiseRejectBlock
   ) {
-    let value = keychain[key as String]
-    return resolve(value)
+    // A missing item resolves nil; any other failure (access denied, prompt cancelled) rejects,
+    // so callers don't mistake an unreadable item for an empty one.
+    do {
+      resolve(try keychain.get(key as String))
+    } catch {
+      reject("keychain_error", error.localizedDescription, error)
+    }
   }
 
   @objc func showToast(_ text: String, variant: String, timeout: NSNumber) {

@@ -19,6 +19,9 @@ const MANAGED_PASTEBOARD_IMAGES_PATH = `/Users/${solNative.userName()}/.config/s
 let onTextCopiedListener: EmitterSubscription | undefined;
 let onFileCopiedListener: EmitterSubscription | undefined;
 let pruneInterval: ReturnType<typeof setInterval> | undefined;
+// Set when the saved history exists but couldn't be read (e.g. Keychain access denied). The
+// saved copy is then left alone: no image cleanup, no overwriting it with this session's items.
+let savedHistoryUnreadable = false;
 
 export type ClipboardStore = ReturnType<typeof createClipboardStore>;
 
@@ -311,9 +314,14 @@ export const createClipboardStore = (root: IRootStore) => {
 		}
 
 		if (store.saveHistory) {
-			const entry = await solNative.securelyRetrieve(
-				"@sol.clipboard_history_v2",
-			);
+			let entry: string | null | undefined;
+			try {
+				entry = await solNative.securelyRetrieve("@sol.clipboard_history_v2");
+			} catch (e) {
+				savedHistoryUnreadable = true;
+				captureException(e);
+				return;
+			}
 
 			if (entry) {
 				let items = JSON.parse(entry);
@@ -341,7 +349,7 @@ export const createClipboardStore = (root: IRootStore) => {
 	};
 
 	const persist = async () => {
-		if (store.saveHistory) {
+		if (store.saveHistory && !savedHistoryUnreadable) {
 			// Ensure all items have datetime before persisting
 			const itemsToPersist = store.items.map((item) => ({
 				...item,
