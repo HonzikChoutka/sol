@@ -27,6 +27,7 @@ export SENTRY_DISABLE_AUTO_UPLOAD=true
 bun install
 (cd macos && pod install)
 
+mkdir -p "$DERIVED_DATA"
 xcodebuild \
   -workspace macos/sol.xcworkspace \
   -scheme release \
