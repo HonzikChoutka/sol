@@ -23,8 +23,9 @@ class AppDelegate: RCTAppDelegate {
   private let supportedImageFileExtensions = Set(["png", "jpg", "jpeg"])
 
   override init() {
+    // Personal fork: never auto-update, or the next upstream release would replace this build.
     updaterController = SPUStandardUpdaterController(
-      startingUpdater: true,
+      startingUpdater: false,
       updaterDelegate: nil,
       userDriverDelegate: nil
     )
@@ -84,9 +85,7 @@ class AppDelegate: RCTAppDelegate {
   }
 
   func checkForUpdates() {
-    DispatchQueue.main.async {
-      self.updaterController.checkForUpdates(self)
-    }
+    // Personal fork: updates come from rebuilding the fork (see FORK.md), not Sparkle.
   }
 
   func setupPasteboardListener() {
